@@ -1,0 +1,227 @@
+##############################
+###############              #
+# Micro Units #              #
+###############              #
+#				             #
+# Length      -> micron      #
+# Mass   	  -> picogram    #
+# Time 	 	  -> microsecond # 
+# Temperature -> Kelvin      #
+#                            #
+##############################
+
+################################################
+
+variable 			mu equal VAR_mu
+variable 			sigma equal VAR_sigma
+
+variable 			R_min equal VAR_R_min
+variable 			R_max equal VAR_R_max
+
+variable 			n_sizes equal VAR_n_sizes
+variable 			n_templates equal ${n_sizes}*2
+
+variable 			percen_MgO equal VAR_percen_MgO
+variable 			prop_MgO equal ${percen_MgO}/100
+variable 			prop_Al2O3 equal 1-${prop_MgO}
+
+
+################################################
+-----
+
+
+################################################
+
+###################################################################################################
+
+### Initialization
+
+# log name
+variable 			log_name string log1.liggghts
+
+# Variables
+
+# Simulation domain, [m]*10^6 => [micron]
+variable 			dom_radius equal 0.0155e6
+variable 			zlo equal -0.001e6
+variable 			zhi equal 0.018e6
+
+# Cylinder wall dimensions, [m]*10^6 => [micron]
+variable 			cylin_radius equal 0.011e6
+
+# Young Modulus, [kg*m-1*s-1]*10^-3 => [picogram*micron-1*microsecond-1]
+# 250 GPa
+variable 			E_MgO equal 2.5e8 
+variable 			E_Al2O3 equal 2.5e8
+
+# Cohesion Energy Density, [J*m-3]*10^-3 == [kg*m-1*s-2]*10^-3 => [picogram*micron-1*microsecond-2]
+# 3e6 J*m-3
+variable 			CED_MgO equal 3000000e-3
+variable 			CED_Al2O3 equal 3000000e-3
+
+# Spheres, [m]*10^6 => [micron] 
+variable 			rho_MgO equal 3500e-3
+variable 			rho_Al2O3 equal 3000e-3 
+variable 			nu_Al2O3 equal 0.25
+variable 			nu_MgO equal 0.35
+
+# Neighbor extra distance beyond force cutoff
+variable 			skin equal 2*${R_min}
+
+# Plate, [m]*10^6 => [micron]
+variable 			radius equal 0.011e6
+variable 			h_plate equal 0.008e6
+
+# Factory domain, [m]*10^6 => [micron]
+variable 			z_lo2 equal ${R_max}
+variable 			z_hi2 equal ${z_lo2}+(${radius}^2*${h_plate})/((${radius}-${R_max})^2)
+variable 			z_press equal ceil((${z_hi2}+${R_max})/1000)*1000
+variable 			R_in equal ${radius}-${R_max} 
+
+# Plate, [m]*10^6 => [micron]
+variable 			scale equal 1e3
+
+# Aproximation force [N]
+variable 			target_force equal 100 # 100 N
+
+# Gravity, [m*s-2]*10^-6 => [micron*microsecond-2]
+variable 			gravity equal 9.81e-6
+
+# Shear modulus
+variable 			shear_modulus equal ${E_Al2O3}/(2*(1+${nu_Al2O3}))
+
+# Rayleigh time [microseconds]
+variable 			rayleigh_time equal 3.141592*${R_min}*(sqrt(${rho_Al2O3}/${shear_modulus})/(0.1631*${nu_Al2O3}+0.8766))
+
+# TimeStep
+variable 			timestep equal 0.3*${rayleigh_time}
+
+# Press velocity, [m*s-1] => [micron*microsecond-1]
+variable 			pressVel equal -0.3
+# Press height [mm]
+variable 			h_press equal 13
+# Time spent in displacement [s]
+variable 			t_displace equal ((${h_press}*10^3)-${h_plate})/abs(${pressVel})
+
+
+# timeSteps for one simulation second
+variable 			tsInAsecond equal 1e6/${timestep}
+
+# Dump every ... (fps => frames per second in animation)
+variable 			100fps equal ceil(${tsInAsecond}/100)
+variable 			1000fps equal ceil(${tsInAsecond}/1000)
+
+
+###########################################################
+# Cuantos segundos dura la simulacion?
+variable 			runUpTo1 equal ceil(10*${tsInAsecond})
+# Procentaje en volumen de insercion en factory2
+variable 			per equal 0.45
+###########################################################
+
+
+
+# Preliminaries
+units				micro
+atom_style			sphere
+atom_modify			map array
+boundary 			f f f
+newton 				off
+communicate			single vel yes
+processors			* * 1   # Distribute processes within XY plane
+
+# Declare domain
+region				domain cylinder z 0 0 ${dom_radius} ${zlo} ${zhi} units box
+create_box 			2 domain
+
+# log name
+log 				${log_name} append
+
+# Neighbor listing 
+neighbor 			${skin} bin
+neigh_modify		delay 0 
+
+
+### Setup
+# Material and interaction properties required
+fix 				m1 all property/global youngsModulus peratomtype ${E_MgO} ${E_Al2O3}
+fix 				m2 all property/global poissonsRatio peratomtype ${nu_MgO} ${nu_Al2O3}
+fix 				m3 all property/global coefficientRestitution peratomtypepair 2 0.5 0.5 0.5 0.5 
+fix 				m4 all property/global coefficientFriction peratomtypepair 2 0.2 0.2 0.2 0.2
+fix 				m6 all property/global cohesionEnergyDensity peratomtypepair 2 ${CED_MgO} ${CED_Al2O3} ${CED_Al2O3} ${CED_MgO}
+
+
+###################################################################################################
+##########################
+# Mass insertion #
+##########################
+
+~~~~~
+
+
+
+*****
+
+
+###################################################################################################
+
+# Factory
+region 				factory2 cylinder z 0 0 ${R_in} ${z_lo2} ${z_hi2} units box
+
+fix 				ins2 all insert/pack seed 1001 distributiontemplate pdd2 insert_every once overlapcheck yes maxattempt 1000 volumefraction_region ${per} region factory2 ntry_mc 1000000 
+
+
+# Import mesh from cad:
+fix 				cad1 all mesh/surface file meshes/plato_8mm_22mm.stl type 1 scale ${scale}
+fix 				press all mesh/surface/stress file meshes/prensa_22mm_0.stl type 1 scale ${scale} move 0 0 ${z_press} stress on
+fix 				move all move/mesh mesh press linear 0. 0. ${pressVel}
+
+# Forces on press face
+# [picogram*micron*microsecond-2]*10^-9 => [kg*m*s-2] == [N]
+variable 			ForceX equal ceil(f_press[1]*1e-9)
+variable 			ForceY equal ceil(f_press[2]*1e-9)
+variable 			ForceZ equal ceil(f_press[3]*1e-9)
+
+# Wall position [mm]
+variable 			WallZ equal (f_press[9]*1e-3)
+
+# Use the imported mesh as granular wall
+fix 				granwalls all wall/gran model hertz tangential history  mesh n_meshes 2 meshes cad1 press
+
+# Cylinder wall
+fix 				cylinder_wall all wall/gran model hertz tangential history primitive type 1 zcylinder ${cylin_radius} 0 0
+
+# Define the physics
+pair_style 			gran model hertz tangential history cohesion sjkr
+pair_coeff			* *
+
+# Integrator
+fix					integrate all nve/sphere
+
+# Gravity
+fix 				grav all gravity ${gravity} vector 0.0 0.0 -1.0
+
+# Time step
+timestep 			${timestep}
+
+# Thermodynamic output settings
+thermo_style		custom step atoms ke time cpu
+thermo 				1000
+thermo_modify 		norm no lost ignore  # ignore lost particles
+
+# Restart doc; replace itself everytime
+#restart 			${1000fps} poly.restart poly.restart
+restart 			${1000fps} poly.restart poly.restart
+
+# Check RayleighTime and HertzTime every 1000 steps if > 0.2
+fix 				ctg all check/timestep/gran 1000 0.2 0.2  
+
+
+# Initialize dump files
+dump				dmp all custom ${1000fps} post/dump*.pruebas id type x y z ix iy iz vx vy vz fx fy fz omegax omegay omegaz radius mass
+fix 				dumpText all print 10 "${ForceX} ${ForceY} ${ForceZ} ${WallZ}" screen no title "Fx[N] Fy[N] Fz[N] Z[mm]" file fuerzasPrensa1.txt
+dump 				dmpstl all mesh/stl ${1000fps} post/dump*.stl
+
+#run
+
+run 				${runUpTo1} every 100 "if '${ForceZ}>${target_force}' then quit"
