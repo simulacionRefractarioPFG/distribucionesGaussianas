@@ -215,7 +215,7 @@ restart 			${1000fps} poly.restart poly.restart
 
 # Check RayleighTime and HertzTime every 1000 steps if > 0.2
 fix 				ctg all check/timestep/gran 1000 0.2 0.2  
-
+run 1
 
 # Initialize dump files
 dump				dmp all custom ${1000fps} post/dump*.pruebas id type x y z ix iy iz vx vy vz fx fy fz omegax omegay omegaz radius mass
